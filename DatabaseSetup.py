@@ -3,7 +3,7 @@
 # specified username in the user set.
 def createNewUser(username, userid, password):
     from pymongo import MongoClient
-    client = pymongo.MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
+    client = MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
     db = client.Users
     people = db.UserSet    
     exists = people.find_one({'username': username})
@@ -22,7 +22,7 @@ def createNewUser(username, userid, password):
 # returns False
 def login(username, userid, password):
     from pymongo import MongoClient
-    client = pymongo.MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
+    client = MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
     db = client.Users
     people = db.UserSet
     person = people.find_one({'username': username,
@@ -37,7 +37,7 @@ def login(username, userid, password):
 # if a project with that name already exists.
 def createProject(username, project_id, project_name, project_desc):
     from pymongo import MongoClient
-    client = pymongo.MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
+    client = MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
     db = client.Projects
     projects = db[username]    
     exists = projects.find_one({'project_name': project_name})
@@ -57,13 +57,15 @@ def createProject(username, project_id, project_name, project_desc):
 # Prereq: username is a valid user.
 def selectProject(username, project_name):
     from pymongo import MongoClient
-    client = pymongo.MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
+    client = MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
     db = client.Projects
     projects = db[username]
     project = projects.find_one({'project_name': project_name})
     if project == None:
+        client.close()
         return False
     else:
+        client.close()
         return project['hardware']
 
 # TODO: Add similar methods for hardware database.
@@ -73,7 +75,7 @@ def selectProject(username, project_name):
 # uses for now. Note that a negative amt can be used to remove hardware from the database.
 def addHardware(hw_name, amt):
     from pymongo import MongoClient
-    client = pymongo.MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
+    client = MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
     db = client.Hardware
     hw_set = db.HW_Set
     hw = hw_set.find_one({'name': hw_name})
@@ -82,38 +84,53 @@ def addHardware(hw_name, amt):
                     'capacity': amt,
                     'availability': amt}
         hw_set.insert_one(document)
+    elif amt < 0:
+        availability = hw['availability']
+        capacity = hw['capacity']
+        removal_amt = -amt if -amt <= availability else availability
+        hw_set.updateOne({'name':hw_name}, {'availability': availability - removal_amt})
+        hw_set.updateOne({'name':hw_name}, {'capacity': capacity - removal_amt})
     else:
-        if amt < 0:
-            removal_amt = -amt if -amt <= hw['availability'] else hw['availability']
-            hw['availability'] -= removal_amt
-            hw['capacity'] -= removal_amt
-        else:
-            hw['availability'] += amt
-            hw['capacity'] += amt
+        availability = hw['availability']
+        capacity = hw['capacity']
+        hw_set.updateOne({'name':hw_name}, {'availability': availability})
+        hw_set.updateOne({'name':hw_name}, {'capacity': capacity})
+    client.close()
 
 # Checks out specified hardware amount from the specified project
-# Returns: 2, if the project doesn't exist with the specified username.
+# Returns: 3, if the project doesn't exist with the specified username.
+#          2, if the hardware doesn't exist with the specified hw name
 #          1, if there is not enough capacity to check out all of the
 #             requested hardware. In this case, the remaining capacity
 #             is checked out, which is less than the requested amount.
+#             Also returns the number of resources checked out.
 #          0, if all of the requested hardware is successfully checked
 #             out.
 def check_out(hw_name, amt, project_name, username):
     from pymongo import MongoClient
-    client = pymongo.MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
+    client = MongoClient("mongodb+srv://rickhanish:ECE461LPassword@cluster0.e0ejs3p.mongodb.net/?retryWrites=true&w=majority")
     db = client.Projects
     projects = db[username]
     project = projects.find_one({'project_name': project_name})
     if project == None:
-        return 2
+        client.close()
+        return 3, 0
     
     db = client.Hardware
     hw_set = db.HW_Set
     hw = hw_set.find_one({'name': hw_name})
-    if hw['availability'] < amt:
-        #TODO
-        return 1
+    if hw == None:
+        client.close()
+        return 2, 0
+    availability = int(hw['availability'])
+    if availability < amt:
+        hw_set.updateOne({'name':hw_name}, {'availability': 0})
+        #TODO update a record of how many were checked out
+        client.close()
+        return 1, availability
     else:
-        #TODO
-        return 0
+        hw_set.updateOne({'name':hw_name}, {'availability': availability - amt})
+        #TODO log a record of how many were checked out
+        client.close()
+        return 0, amt
     
